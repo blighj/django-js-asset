@@ -2,8 +2,8 @@
 django-js-asset -- JS, CSS and JSON support for django.forms.Media
 ==================================================================
 
-.. image:: https://github.com/matthiask/django-js-asset/workflows/Tests/badge.svg
-    :target: https://github.com/matthiask/django-js-asset
+.. image:: https://github.com/feincms/django-js-asset/workflows/Tests/badge.svg
+    :target: https://github.com/feincms/django-js-asset
 
 **Note!** `Django 5.2 adds its own support for JavaScript objects
 <https://docs.djangoproject.com/en/dev/topics/forms/media/#script-objects>`__.
@@ -45,7 +45,7 @@ accessed inside ``asset.js``:
 
 .. code-block:: javascript
 
-    var answer = document.querySelector("#asset-script").dataset.answer;
+    let answer = document.querySelector("#asset-script").dataset.answer;
 
 Also, because the implementation of ``static`` differs between supported
 Django versions (older do not take the presence of
@@ -93,7 +93,7 @@ Compatibility
 At the time of writing this app is compatible with Django 4.2 and better
 (up to and including the Django main branch), but have a look at the
 `tox configuration
-<https://github.com/matthiask/django-js-asset/blob/main/tox.ini>`_ for
+<https://github.com/feincms/django-js-asset/blob/main/tox.ini>`_ for
 definitive answers.
 
 
@@ -120,109 +120,301 @@ per-version difference only affects the unusual case of the same path carried
 with *different* attributes in a single merge.
 
 
-Extremely experimental importmap support
-========================================
+Import maps
+===========
 
-django-js-asset ships an extremely experimental implementation adding support
-for using `importmaps
+django-js-asset can ship `import maps
 <https://developer.mozilla.org/en-US/docs/Web/HTML/Element/script/type/importmap>`_.
+They let your modules import short names (``import { Stuff } from
+"my-library"``) and have the browser resolve them to the real, possibly hashed,
+URLs produced by Django's ``ManifestStaticFilesStorage`` -- without rewriting
+the imports in your JavaScript.
 
-One of the reasons why importmaps are useful when used with Django is that this
-easily allows us to use the file name mangling offered for example by Django
-``ManifestStaticFilesStorage`` without having to rewrite import statements in
-scripts themselves.
-
-Browser support for multiple importmaps is not generally available; at the time
-of writing (February 2025) it's not even clear if Mozilla wants to support them
-ever, so merging importmaps is -- for now -- the only viable way to use them in
-production. Because of this the implementation uses a global importmap variable
-where new entries can be added to and a context processor to make the importmap
-available to templates.
-
-The ``importmap`` object can be imported from ``js_asset``. Usage is as follows:
+Browsers do not reliably support more than one import map per page, so all of
+them have to be merged into one. ``js_asset.Media`` does this for you: drop
+``ImportMap`` objects into your media wherever they are relevant -- typically
+next to the module that needs them -- and they are combined into a single
+``<script type="importmap">`` rendered before every other script, no matter how
+many media objects were added together to get there:
 
 .. code-block:: python
 
-    # static is a lazy version of Django's static() function used in the
-    # {% static %} template tag.
-    from js_asset import JS, static_lazy, importmap
+    from js_asset import ImportMap, JS, Media, static_lazy
 
-    # Run this during project initialization, e.g. in App.ready or whereever.
-    importmap.update({
-        "imports": {
-            "my-library": static_lazy("my-library.js"),
-        },
-    })
-
-The importmap should be initialized on server startup, not later.
-
-You have to add ``js_asset.context_processors.importmap`` to the list of
-context processors in your settings (or choose some other way of making the
-``importmap`` object available in templates) and add ``{{ importmap }}``
-somewhere in your base template, preferrably at the top before including any
-scripts. This is especially important if you're using some way of replacing
-parts of the website after the initial load with parts also containing scripts,
-such as `htmx <https://htmx.org/>`__.
-
-When you've done that you can start profiting from the importmap by adding
-JavaScript modules. When using media objects in the Django admin you also have
-to add the importmap to the list of JavaScript assets via
-``forms.Media(js=[...])`` if you do not want to add the ``{{ importmap }}`` tag
-to your admin base templates. You have to ensure that the importmap is included
-before any other JavaScript modules.
-
-If you're using the same widget for the admin interface as for the rest of your
-site, adding the importmap to the ``js`` list will mean that your HTML contains
-the importmap twice. This doesn't hurt a lot since the contents should be
-identical. Ways to work around it include either only ever using ``{{ importmap
-}}`` or ``{{ form.media }}`` on a given page (if possible) or using different
-widget classes for the admin than for the rest of your site.
-
-.. code-block:: python
-
-    # Example for adding a code.js JavaScript *module*
-    forms.Media(js=[
-        importmap,  # See paragraph above!
+    media = Media(js=[
+        ImportMap({"imports": {"my-library": static_lazy("my-library.js")}}),
         JS("code.js", {"type": "module"}),
     ])
 
-The code in ``code.js`` can now use a JavaScript import to import assets from
-the library, even though the library's filename may contain hashes not known at
-programming time:
+See `CSP nonces`_ below for per-request nonces.
 
-.. code-block:: javascript
+.. note::
 
-    import { Stuff } from "my-library"
+   Earlier releases shipped a single global ``importmap`` object plus a context
+   processor (rendered via ``{{ importmap }}``). That approach has been removed
+   in favour of the per-``Media`` merging shown above; use ``js_asset.Media``
+   instead.
 
-One-off modifications to importmaps, for example in views
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-If you want to add to the base importmap in a view, you can do it as follows:
+Rendering media in views and the admin
+======================================
+
+``js_asset.Media`` renders exactly like ``forms.Media``: ``{{ media }}`` (i.e.
+``str(media)``) in a template emits the merged import map followed by every
+stylesheet and script -- the import map first, so the modules can rely on it.
+What changes from one situation to the next is only how you obtain the right
+``Media`` object.
+
+In a front-facing view
+~~~~~~~~~~~~~~~~~~~~~~~
+
+When you own the template, build or collect the media in the view and put it in
+the context:
 
 .. code-block:: python
 
-    # Again, static is the same as Django's static() helper
-    from js_asset import importmap, static
+    from django.shortcuts import render
+    from js_asset import ImportMap, JS, Media, static
 
-    def view(request):
+    def dashboard(request):
+        media = Media(js=[
+            ImportMap({"imports": {"chart": static("chart/index.js")}}),
+            JS("dashboard.js", {"type": "module"}),
+        ])
+        return render(request, "dashboard.html", {"media": media})
+
+``form.media`` is already a ``js_asset.Media`` as soon as one of its widgets
+returns one, so you can render it directly. Combine your own assets with a
+form's by simply adding them -- as long as one side is a ``js_asset.Media`` the
+result stays one (regardless of order) and merges import maps. If neither side
+is, wrap one with ``Media.from_media`` first (``Media(form.media)`` does **not**
+work, because ``forms.Media`` copies from a media *definition*, not an
+*instance*):
+
+.. code-block:: python
+
+    def edit(request):
+        form = MyForm()
+        page = Media(js=[
+            ImportMap({"imports": {"editor": static("editor/index.js")}}),
+            JS("editor/init.js", {"type": "module"}),
+        ])
+        media = page + form.media            # or: Media.from_media(form.media)
+        return render(request, "edit.html", {"form": form, "media": media})
+
+.. code-block:: html
+
+    {# edit.html #}
+    <head>{{ media }}</head>
+    ...
+    {{ form }}
+
+Attach a per-request CSP nonce with ``media.with_nonce(request.csp_nonce)`` --
+see `CSP nonces`_ below.
+
+In the Django admin
+~~~~~~~~~~~~~~~~~~~
+
+In the admin you write **no** view code: the admin collects ``ModelAdmin.media``
+together with every form's and widget's media itself and renders it in the
+change form. All you have to do is make sure the widget that needs the import
+map returns a ``js_asset.Media``:
+
+.. code-block:: python
+
+    from django.contrib import admin
+    from django import forms
+    from js_asset import ImportMap, JS, Media, static
+
+    class EditorWidget(forms.Textarea):
+        @property
+        def media(self):
+            return Media(js=[
+                ImportMap({"imports": {"editor": static("editor/index.js")}}),
+                JS("editor/init.js", {"type": "module"}),
+            ])
+
+    class ArticleForm(forms.ModelForm):
+        class Meta:
+            model = Article
+            fields = "__all__"
+            widgets = {"body": EditorWidget}
+
+    @admin.register(Article)
+    class ArticleAdmin(admin.ModelAdmin):
+        form = ArticleForm
+
+Because ``js_asset.Media`` keeps its type through the additions Django performs
+while combining ``ModelAdmin.media`` with the form media, the object the admin
+finally renders is a ``js_asset.Media`` -- so the import maps your widgets
+contribute are merged into the single tag automatically, ahead of the admin's
+own scripts. The same widget works unchanged outside the admin.
+
+
+CSP nonces
+==========
+
+A CSP nonce is *request-scoped* -- it must change on every response, while
+widget media is usually built once at class-definition time -- so the nonce is
+applied when the media is rendered, not when it is constructed.
+``js_asset.Media`` stores an optional nonce and applies it to every script and
+stylesheet it renders (a ``JSON`` block is data, not executable, and
+deliberately gets none). There are three ways to get the nonce in, depending on
+your Django version.
+
+Django 6.2 and newer (built-in CSP)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Django 6.2 ships CSP support, and ``js_asset.Media`` plugs straight into it --
+no extra wiring. Configure CSP as usual:
+
+.. code-block:: python
+
+    # settings.py
+    from django.utils.csp import CSP
+
+    MIDDLEWARE = [
         # ...
+        "django.middleware.csp.ContentSecurityPolicyMiddleware",
+    ]
 
-        specific_importmap = {
-            "imports": {
-                "stuff": static("stuff.js"),
-            },
-        }
+    SECURE_CSP = {
+        "default-src": [CSP.SELF],
+        "script-src": [CSP.SELF, CSP.NONCE],
+        "style-src": [CSP.SELF, CSP.NONCE],
+    }
 
-        return render(
-            request,
-            "...",
-            {"importmap": importmap | specific_importmap},
-        )
+    TEMPLATES = [{
+        # ...
+        "OPTIONS": {
+            "context_processors": [
+                # ...
+                "django.template.context_processors.csp",
+            ],
+        },
+    }]
 
-Of course this only works if the importmap is rendered in the template and not
-passed through ``forms.Media``. This isn't perfect of course, so I'm still
-looking into ways to improve the behavior.
+Then render the media with the built-in ``{% csp_nonce_attr %}`` tag, which
+calls ``media.render(attrs={"nonce": ...})`` for you:
 
-When using ``importmap.update(...)`` you are updating the global importmap
-object. When you are OR-ing importmap objects together you get a new importmap
-object which is unrelated to the global importmap.
+.. code-block:: html
+
+    {% csp_nonce_attr form.media %}
+
+That single tag emits the merged import map and every script/stylesheet, each
+carrying the per-request nonce.
+
+Django 4.2 to 6.1 (with ``django-csp``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Older Django has no built-in nonce, so use the third-party `django-csp
+<https://django-csp.readthedocs.io/>`__ package. Install it, add its
+middleware, and make sure the nonce is part of the relevant directives.
+
+With django-csp 4.x the policy is a single setting and the nonce is a sentinel
+from ``csp.constants``:
+
+.. code-block:: python
+
+    # settings.py (django-csp 4.x)
+    from csp.constants import NONCE, SELF
+
+    MIDDLEWARE = [
+        # ...
+        "csp.middleware.CSPMiddleware",
+    ]
+
+    CONTENT_SECURITY_POLICY = {
+        "DIRECTIVES": {
+            "default-src": [SELF],
+            "script-src": [SELF, NONCE],
+            "style-src": [SELF, NONCE],
+        },
+    }
+
+django-csp 3.x uses individual settings instead, and you opt the nonce into
+directives with ``CSP_INCLUDE_NONCE_IN``:
+
+.. code-block:: python
+
+    # settings.py (django-csp 3.x)
+    CSP_DEFAULT_SRC = ("'self'",)
+    CSP_SCRIPT_SRC = ("'self'",)
+    CSP_STYLE_SRC = ("'self'",)
+    CSP_INCLUDE_NONCE_IN = ("script-src", "style-src")
+
+Either way the middleware exposes the per-request nonce as
+``request.csp_nonce``. It is lazy: django-csp only adds the nonce to the
+response header once the value has actually been *used*. Rendering the media
+with it counts as using it, so you do not have to do anything special -- just
+make sure you render through ``js_asset``. Attach the nonce in the view and
+render the copy:
+
+.. code-block:: python
+
+    def my_view(request):
+        form = MyForm()
+        return render(request, "page.html", {
+            "form_media": form.media.with_nonce(request.csp_nonce),
+        })
+
+.. code-block:: html
+
+    {{ form_media }}
+
+``with_nonce()`` returns a *copy*, so a shared/cached widget ``media`` object is
+never mutated and one request's nonce can never leak into another. If you would
+rather stay in the template, drop in a small tag (the ``request`` context
+processor must be enabled). It also copes with a plain ``forms.Media`` --
+``Media(form.media)`` does **not** work, because ``forms.Media`` copies assets
+from a media *definition*, not an *instance*, so use ``from_media``:
+
+.. code-block:: python
+
+    # yourapp/templatetags/js_asset_csp.py
+    from django import template
+    from js_asset import Media
+
+    register = template.Library()
+
+    @register.simple_tag(takes_context=True)
+    def media_with_nonce(context, media):
+        nonce = getattr(context.get("request"), "csp_nonce", "")
+        if not isinstance(media, Media):
+            media = Media.from_media(media)
+        return media.with_nonce(nonce).render()
+
+.. code-block:: html
+
+    {% load js_asset_csp %}
+    {% media_with_nonce form.media %}
+
+Anywhere: set the nonce explicitly
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+You can always set the nonce yourself, either on construction or per request:
+
+.. code-block:: python
+
+    Media(nonce=the_nonce, js=[...])      # at construction
+    some_media.with_nonce(the_nonce)      # copy with a nonce
+    some_media.render(nonce=the_nonce)    # one-off render
+
+
+Notes
+=====
+
+* The merged import map is always rendered first, so a module added in the same
+  media can rely on it.
+* Browsers honour only the **first** import map on a page; make sure everything
+  that needs the same map ends up in one merged ``Media`` -- a second
+  ``<script type="importmap">`` reaching the page some other way is silently
+  ignored.
+* Import maps are subject to ``script-src``; make sure ``CSP.NONCE`` is present
+  there (and in ``style-src`` if you render stylesheets).
+* A stylesheet placed in ``js=[...]`` is only de-duplicated against that list.
+  ``forms.Media`` keeps the ``css={...}`` dictionary in a separate slot, so the
+  same file listed in both renders twice -- pick one.
+* ``JSON`` blocks are data and deliberately get no nonce.
+* Browser support for import maps is still uneven; merging into a single map is
+  currently the only portable way to use them in production.

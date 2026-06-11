@@ -60,9 +60,8 @@ The matrix lives in `tox.ini` (`tests/manage.py test testapp`).
 
 ## Docs
 
-- `README.rst` — basic usage + the legacy global `importmap`.
-- `docs/assets-importmaps-and-csp.rst` — full guide: assets, import-map
-  merging via `js_asset.Media`, and CSP nonces across Django 4.2 → main.
+- `README.rst` — the single doc: assets, import-map merging via `js_asset.Media`,
+  rendering in views/admin, and CSP nonces across Django 4.2 → main.
 
 ## Lint
 

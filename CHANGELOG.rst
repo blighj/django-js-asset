@@ -20,6 +20,11 @@ Next version
   Django 4.2–5.1 and 6.2+, and path-only on 5.2–6.1 (matching native Django on
   those versions). Previously all fields were part of identity on every
   version.
+- **Backwards-incompatible:** Removed the global ``importmap`` object and the
+  ``js_asset.context_processors.importmap`` context processor. Embed
+  ``ImportMap`` objects in your ``js_asset.Media`` instead; they are merged into
+  a single ``<script type="importmap">`` automatically. Drop the context
+  processor and any ``{{ importmap }}`` tag from your templates.
 
 
 3.1 (2025-02-28)
@@ -63,7 +68,7 @@ Next version
 `2.0`_ (2022-02-10)
 ~~~~~~~~~~~~~~~~~~~
 
-.. _2.0: https://github.com/matthiask/django-js-asset/compare/1.2...2.0
+.. _2.0: https://github.com/feincms/django-js-asset/compare/1.2...2.0
 
 - Raised the minimum supported versions of Python to 3.6, Django to 2.2.
 - Added pre-commit.
@@ -129,7 +134,7 @@ Released as 1.2.1 and 1.2.2:
 .. _django-content-editor: https://django-content-editor.readthedocs.io/
 .. _tox: https://tox.readthedocs.io/
 
-.. _0.1: https://github.com/matthiask/django-js-asset/commit/e335c79a87
-.. _1.0: https://github.com/matthiask/django-js-asset/compare/0.1...1.0
-.. _1.1: https://github.com/matthiask/django-js-asset/compare/1.0...1.1
-.. _1.2: https://github.com/matthiask/django-js-asset/compare/1.1...1.2
+.. _0.1: https://github.com/feincms/django-js-asset/commit/e335c79a87
+.. _1.0: https://github.com/feincms/django-js-asset/compare/0.1...1.0
+.. _1.1: https://github.com/feincms/django-js-asset/compare/1.0...1.1
+.. _1.2: https://github.com/feincms/django-js-asset/compare/1.1...1.2

@@ -18,7 +18,6 @@ __all__ = [
     "MediaAsset",
     "Script",
     "Stylesheet",
-    "importmap",
     "static",
     "static_lazy",
 ]
@@ -144,6 +143,3 @@ class ImportMap:
             combined.update(other)
             return combined
         return NotImplemented
-
-
-importmap = ImportMap({})
