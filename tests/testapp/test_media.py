@@ -1,7 +1,23 @@
 from django.forms import Media as DjangoMedia
 from django.test import TestCase
+from django.utils.html import html_safe
 
-from js_asset import CSS, JS, ImportMap, Media
+from js_asset import CSS, JS, JSON, ImportMap, Media
+
+
+@html_safe
+class HTMLOnlyAsset:
+    """
+    A media asset using Django's plain ``__html__`` contract -- not a
+    ``MediaAsset`` and not one of our ``ImportMap``/``JSON`` types. Stock
+    ``forms.Media`` renders such assets via ``__html__()``.
+    """
+
+    def __init__(self, markup):
+        self._markup = markup
+
+    def __str__(self):
+        return self._markup
 
 
 class MediaTest(TestCase):
@@ -97,6 +113,33 @@ class MediaTest(TestCase):
         self.assertInHTML(
             '<script src="/static/app.js" nonce="from-attrs"></script>',
             media.render(attrs={"nonce": "from-attrs"}),
+        )
+
+    def test_html_only_asset_renders_via_html(self):
+        # A plain ``__html__``-only asset (e.g. a build-tool helper) is neither
+        # a MediaAsset nor one of our types; it must fall back to ``__html__()``
+        # the way stock ``forms.Media`` does, instead of crashing on a missing
+        # ``render`` method.
+        media = Media(js=[HTMLOnlyAsset('<script src="/bundle.js"></script>')])
+        self.assertEqual(media.render(), '<script src="/bundle.js"></script>')
+
+    def test_html_only_asset_renders_with_nonce_set(self):
+        # The nonce cannot be threaded into an opaque ``__html__`` asset (same
+        # as stock Django), but its presence must not break rendering.
+        media = Media(
+            nonce="n0nce",
+            js=[HTMLOnlyAsset('<script src="/bundle.js"></script>')],
+        )
+        self.assertEqual(media.render(), '<script src="/bundle.js"></script>')
+
+    def test_json_asset_rendered_through_media(self):
+        # A JSON block carried as a JS asset renders via its own ``render``.
+        # It is data, not executed script, so it stays nonce-free even when a
+        # nonce is set on the media.
+        media = Media(nonce="n0nce", js=[JSON({"a": 1}, id="cfg")])
+        self.assertInHTML(
+            '<script id="cfg" type="application/json">{"a": 1}</script>',
+            media.render(),
         )
 
     def test_adding_non_media_is_not_supported(self):

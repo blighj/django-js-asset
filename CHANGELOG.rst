@@ -4,6 +4,17 @@
 Change log
 ==========
 
+Next version
+~~~~~~~~~~~~
+
+- Fixed ``js_asset.Media`` crashing with an ``AttributeError`` when rendering an
+  asset that only implements Django's plain ``__html__`` contract (neither a
+  ``MediaAsset`` nor one of our ``ImportMap``/``JSON`` types). Such assets now
+  fall back to ``__html__()`` exactly like ``django.forms.Media`` does; the
+  nonce cannot be threaded into an opaque ``__html__`` asset, same as with stock
+  Django.
+
+
 4.0 (2026-06-11)
 ~~~~~~~~~~~~~~~~
 
