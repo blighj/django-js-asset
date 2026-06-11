@@ -8,7 +8,11 @@ django-js-asset -- JS, CSS and JSON support for django.forms.Media
 **Note!** `Django 5.2 adds its own support for JavaScript objects
 <https://docs.djangoproject.com/en/dev/topics/forms/media/#script-objects>`__.
 This library has a slightly different API and also supports much older versions
-of Django, *and* it also supports CSS and JSON tags.
+of Django, *and* it also supports CSS and JSON tags. As of the next version
+``JS`` and ``CSS`` actually *produce* Django's own ``Script`` and ``Stylesheet``
+objects (backported on Django versions that lack them), so js_asset assets,
+plain path strings and Django's native assets share the same de-duplication
+buckets in ``forms.Media`` -- see `Deduplication`_ below.
 
 Usage
 =====
@@ -91,6 +95,29 @@ At the time of writing this app is compatible with Django 4.2 and better
 `tox configuration
 <https://github.com/matthiask/django-js-asset/blob/main/tox.ini>`_ for
 definitive answers.
+
+
+Deduplication
+=============
+
+``JS`` and ``CSS`` produce Django's own ``Script`` and ``Stylesheet`` objects
+(backported on Django versions that lack them), so they de-duplicate against
+each other, against plain path strings, and against Django's native assets when
+``forms.Media`` merges the media of several forms and widgets. The rules for
+what counts as a duplicate are Django's, and Django changed them between
+releases:
+
+* **Django 4.2 - 5.1 and 6.2+:** two assets are equal when both the path *and*
+  the attributes match, so ``JS("a.js", {"id": "x"})`` and
+  ``JS("a.js", {"id": "y"})`` are distinct and both render.
+* **Django 5.2 - 6.1:** Django compares the **path only**, so those same two
+  assets de-duplicate to one (whichever wins the merge) -- exactly as Django's
+  own ``Script``/``Stylesheet`` behave on those versions.
+
+A given file referenced both as a bare string and via ``JS``/``CSS`` always
+de-duplicates, and nothing is ever rendered twice for the same path. The
+per-version difference only affects the unusual case of the same path carried
+with *different* attributes in a single merge.
 
 
 Extremely experimental importmap support

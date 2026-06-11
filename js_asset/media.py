@@ -2,9 +2,11 @@ import operator
 from functools import reduce
 
 from django import forms
-from django.utils.html import mark_safe
+from django.forms.utils import flatatt
+from django.utils.html import format_html, mark_safe
 
-from js_asset.js import CSS, JS, JSON, ImportMap
+from js_asset._compat import MediaAsset
+from js_asset.js import CSS, JS, ImportMap
 
 
 __all__ = ["Media"]
@@ -120,8 +122,18 @@ class Media(forms.Media):
 
     @staticmethod
     def _render_asset(asset, nonce):
-        if isinstance(asset, (CSS, JS, JSON, ImportMap)):
-            return asset.render(nonce=nonce)
-        # Django >= 6.2 wraps bare paths in MediaAsset objects which render via
-        # an ``attrs`` mapping instead of a ``nonce`` keyword.
-        return asset.render(attrs={"nonce": nonce} if nonce else None)
+        if isinstance(asset, MediaAsset):
+            if not nonce:
+                return asset.__html__()
+            # Inject the nonce ourselves rather than via MediaAsset.render(
+            # attrs=), which only exists on Django >= 6.1. Rebuilding the tag
+            # from ``element_template`` keeps output identical on every
+            # supported Django (4.2 -> main), and ``flatatt`` sorts the
+            # attributes so the nonce lands in the same place as Django's own.
+            return format_html(
+                asset.element_template,
+                path=asset.path,
+                attributes=flatatt({**asset.attributes, "nonce": nonce}),
+            )
+        # JSON / ImportMap are not MediaAssets; they take a ``nonce`` keyword.
+        return asset.render(nonce=nonce)

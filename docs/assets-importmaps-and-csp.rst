@@ -333,6 +333,15 @@ Rendered output (nonce abbreviated):
 Caveats
 =======
 
+* ``JS`` and ``CSS`` *produce* Django's own ``Script``/``Stylesheet`` objects
+  (backported on older Django), so they de-duplicate against each other, against
+  bare path strings, and against Django's native assets in
+  ``forms.Media.merge()``. Asset *identity* follows Django's per-version rules:
+  path **and** attributes on Django 4.2-5.1 and 6.2+, but **path only** on
+  Django 5.2-6.1. So one path carried with *differing* attributes collapses to a
+  single asset on 5.2-6.1 (exactly as native Django does there) and stays
+  distinct elsewhere. A file referenced both as a string and via ``JS``/``CSS``
+  always de-duplicates, and nothing renders twice for the same path.
 * The merged import map is always rendered first, so a module added in the same
   media can rely on it.
 * Import maps are subject to ``script-src``; make sure ``CSP.NONCE`` is present

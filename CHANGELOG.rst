@@ -8,6 +8,18 @@ Next version
 ~~~~~~~~~~~~
 
 - Added a ``static_lazy`` helper.
+- ``JS`` and ``CSS`` now *produce* Django's own ``Script`` and ``Stylesheet``
+  objects (backported via ``js_asset._compat`` on Django versions that lack
+  them) instead of being standalone dataclasses. They therefore share merge
+  buckets with native Django assets and with bare path strings, so the same
+  file is no longer rendered more than once when ``js_asset`` assets, plain
+  strings and Django's auto-wrapped assets meet in ``forms.Media.merge()``.
+  ``isinstance(x, JS)`` / ``isinstance(x, CSS)`` keep working. Inline CSS is
+  rendered by a small ``InlineStyle`` asset. Rendered output is unchanged.
+- Equality now follows Django's own contract: identity is attribute-aware on
+  Django 4.2–5.1 and 6.2+, and path-only on 5.2–6.1 (matching native Django on
+  those versions). Previously all fields were part of identity on every
+  version.
 
 
 3.1 (2025-02-28)

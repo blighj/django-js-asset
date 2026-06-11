@@ -4,65 +4,82 @@ from typing import Any
 from django.forms.utils import flatatt
 from django.templatetags.static import static
 from django.utils.functional import lazy
-from django.utils.html import format_html, html_safe, json_script, mark_safe
+from django.utils.html import html_safe, json_script, mark_safe
+
+from js_asset._compat import MediaAsset, Script, Stylesheet
 
 
-__all__ = ["CSS", "ImportMap", "JS", "JSON", "importmap", "static", "static_lazy"]
-
-
-def static_if_relative(path):
-    return path if path.startswith(("http://", "https://", "/")) else static(path)
+__all__ = [
+    "CSS",
+    "JS",
+    "JSON",
+    "ImportMap",
+    "InlineStyle",
+    "MediaAsset",
+    "Script",
+    "Stylesheet",
+    "importmap",
+    "static",
+    "static_lazy",
+]
 
 
 static_lazy = lazy(static, str)
 
 
-@html_safe
-@dataclass(eq=True)
-class CSS:
-    src: str
-    inline: bool = field(default=False, kw_only=True)
-    media: str = "all"
+class InlineStyle(MediaAsset):
+    """
+    An inline ``<style>`` block. Unlike :class:`Stylesheet` its ``path`` is the
+    CSS source itself (rendered verbatim, never resolved through ``static()``),
+    so it has no Django counterpart and stays a small dedicated
+    :class:`~django.forms.widgets.MediaAsset` subclass.
+    """
 
-    def __hash__(self):
-        return hash(self.__str__())
+    element_template = "<style{attributes}>{path}</style>"
 
-    def render(self, *, nonce=""):
-        nonce_attr = mark_safe(flatatt({"nonce": nonce})) if nonce else ""
-        if self.inline:
-            return format_html(
-                '<style media="{}"{}>{}</style>', self.media, nonce_attr, self.src
-            )
-        return format_html(
-            '<link href="{}" media="{}"{} rel="stylesheet">',
-            static_if_relative(self.src),
-            self.media,
-            nonce_attr,
-        )
+    def __init__(self, css, *, media="all", **attributes):
+        super().__init__(css, media=media, **attributes)
 
-    def __str__(self):
-        return self.render()
+    @property
+    def path(self):
+        return self._path
 
 
-@html_safe
-@dataclass(eq=True)
-class JS:
-    src: str
-    attrs: dict[str, Any] = field(default_factory=dict)
+class _ProducesAsset(type):
+    """
+    Metaclass turning ``JS``/``CSS`` into factories: calling them returns a
+    Django asset (``Script``/``Stylesheet``/``InlineStyle``) so they share
+    ``forms.Media.merge`` buckets -- and dedup -- with Django's own assets and
+    with bare path strings. ``isinstance(x, JS)`` keeps answering truthfully by
+    delegating to the produced type(s).
+    """
 
-    def __hash__(self):
-        return hash(self.__str__())
+    def __call__(cls, *args, **kwargs):
+        return cls._produce(*args, **kwargs)
 
-    def render(self, *, nonce=""):
-        attrs = {**self.attrs, "nonce": nonce} if nonce else self.attrs
-        return format_html(
-            '<script src="{}"{}></script>',
-            static_if_relative(self.src),
-            mark_safe(flatatt(attrs)),
-        )
+    def __instancecheck__(cls, instance):
+        return isinstance(instance, cls._produces)
 
-    def __str__(self):
-        return self.render()
+    def __subclasscheck__(cls, subclass):
+        return issubclass(subclass, cls._produces)
+
+
+class JS(metaclass=_ProducesAsset):
+    _produces = Script
+
+    @staticmethod
+    def _produce(src, attrs=None):
+        return Script(src, **(attrs or {}))
+
+
+class CSS(metaclass=_ProducesAsset):
+    _produces = (Stylesheet, InlineStyle)
+
+    @staticmethod
+    def _produce(src, media="all", *, inline=False):
+        if inline:
+            return InlineStyle(src, media=media)
+        return Stylesheet(src, media=media)
 
 
 @html_safe

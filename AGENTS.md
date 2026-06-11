@@ -19,18 +19,33 @@ The matrix lives in `tox.ini` (`tests/manage.py test testapp`).
 ## Compatibility (hard constraint)
 
 - Python `>=3.10`, Django `>=4.2`. **Django 6.2+ is NOT an acceptable floor.**
-- Don't rely on Django 6.2's `Media.render(attrs=...)` / `MediaAsset` /
-  `Script` machinery. js_asset does its own nonce rendering so it works on 4.2.
-- Cross-version gotcha: Django >= 6.2 wraps bare js/css path strings into
-  `MediaAsset` objects in `Media._js`/`._css`; older Django keeps raw strings.
-  `js_asset/media.py:_render_asset` handles both.
+- `JS`/`CSS` *produce* Django's own `Script`/`Stylesheet` (see Layout). Where
+  Django lacks them they are **backported** in `js_asset/_compat.py`, so the
+  4.2 floor holds — we provide the machinery, we don't *depend* on Django
+  having it. Availability in real Django: `Script` (5.2+), `Stylesheet` +
+  `MediaAsset.render(attrs=)` (6.1+), attribute-aware `__eq__`/`__hash__`
+  (6.2+). The `<5.2` backport mirrors the **6.2** contract.
+- Don't rely on Django's `MediaAsset.render(attrs=...)` existing: it is absent
+  on 5.2/6.0. `media.py:_render_asset` injects the nonce itself by rebuilding
+  the tag from `element_template` + `flatatt`, which works on every version.
+- Cross-version gotcha: Django >= 6.1 wraps bare js/css path strings into
+  `Script`/`Stylesheet` in `Media._js`/`._css`; older Django keeps raw strings.
+  `media.py:_render_{js,css}` wrap any leftover strings via `JS()`/`CSS()`, so
+  `_render_asset` always sees a `MediaAsset` (or `JSON`/`ImportMap`).
 
 ## Layout
 
-- `js_asset/js.py` — `CSS`, `JS`, `JSON`, `ImportMap` assets and the global
-  `importmap`. Each asset has `render(*, nonce="")`; `__str__` delegates to it,
-  and output is byte-identical when no nonce is given (existing exact-string
-  tests depend on this).
+- `js_asset/_compat.py` — `MediaAsset`/`Script`/`Stylesheet`: imported from
+  Django where present, backported (with the 6.2 contract) below 5.2/6.1.
+- `js_asset/js.py` — `JS`/`CSS` are **factories** (a `_ProducesAsset`
+  metaclass): calling them returns a Django `Script`/`Stylesheet`/`InlineStyle`
+  so they dedup in `forms.Media.merge` against native assets *and* bare path
+  strings; `isinstance(x, JS)` still works via `__instancecheck__`. `JSON` and
+  `ImportMap` have no Django counterpart and stay standalone `@html_safe`
+  objects with `render(*, nonce="")`. Output is byte-identical to native Django
+  assets (flatatt sorts attributes), which the exact-string tests depend on.
+  Equality is Django's, so dedup is attribute-aware on 4.2-5.1 + 6.2+ and
+  path-only on 5.2-6.1 (`test_set` derives its expectation from this).
 - `js_asset/media.py` — `Media(forms.Media)` subclass: merges embedded
   `ImportMap`s into one tag and applies a nonce. Implements `__add__` **and**
   `__radd__` so it keeps its type (and nonce) when combined with plain
