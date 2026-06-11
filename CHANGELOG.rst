@@ -4,27 +4,53 @@
 Change log
 ==========
 
-Next version
-~~~~~~~~~~~~
+4.0 (2026-06-11)
+~~~~~~~~~~~~~~~~
 
-- Added a ``static_lazy`` helper.
+This is a major release. Most code keeps working unchanged and the rendered
+HTML is the same, but **if you use import maps the upgrade is not automatic** --
+see the import-map note at the end.
+
+- Added ``js_asset.Media``, a ``django.forms.Media`` subclass with two extra
+  abilities. First, it merges every embedded ``ImportMap`` into a single
+  ``<script type="importmap">`` rendered before any other script -- this
+  replaces the old global ``importmap`` object and works no matter how many
+  media objects Django combines. Second, it applies a request-scoped CSP nonce
+  to the tags it renders. It implements ``__add__`` **and** ``__radd__``, so it
+  keeps its type -- and its nonce -- when combined with a plain ``forms.Media``
+  from either side (e.g. while Django collects form and widget media). The nonce
+  can be passed to the constructor (``nonce=``), copied onto a clone with
+  ``with_nonce()``, or passed to ``render(nonce=...)``; ``render()`` also accepts
+  ``attrs={"nonce": ...}`` so it plugs straight into Django 6.2's
+  ``{% csp_nonce_attr %}`` tag. ``Media.from_media()`` wraps an existing
+  ``forms.Media`` instance (e.g. ``form.media``).
 - ``JS`` and ``CSS`` now *produce* Django's own ``Script`` and ``Stylesheet``
   objects (backported via ``js_asset._compat`` on Django versions that lack
   them) instead of being standalone dataclasses. They therefore share merge
   buckets with native Django assets and with bare path strings, so the same
   file is no longer rendered more than once when ``js_asset`` assets, plain
   strings and Django's auto-wrapped assets meet in ``forms.Media.merge()``.
-  ``isinstance(x, JS)`` / ``isinstance(x, CSS)`` keep working. Inline CSS is
-  rendered by a small ``InlineStyle`` asset. Rendered output is unchanged.
+  ``isinstance(x, JS)`` / ``isinstance(x, CSS)`` keep working (via a metaclass).
+  Inline CSS (``CSS(src, inline=True)``) is rendered by a small dedicated
+  ``InlineStyle`` asset. Rendered output is unchanged.
+- ``Script``, ``Stylesheet``, ``MediaAsset`` and ``InlineStyle`` can now be
+  imported from ``js_asset`` -- prefer these in ``isinstance`` checks over
+  ``JS``/``CSS`` going forward.
 - Equality now follows Django's own contract: identity is attribute-aware on
   Django 4.2–5.1 and 6.2+, and path-only on 5.2–6.1 (matching native Django on
   those versions). Previously all fields were part of identity on every
-  version.
-- **Backwards-incompatible:** Removed the global ``importmap`` object and the
-  ``js_asset.context_processors.importmap`` context processor. Embed
-  ``ImportMap`` objects in your ``js_asset.Media`` instead; they are merged into
-  a single ``<script type="importmap">`` automatically. Drop the context
-  processor and any ``{{ importmap }}`` tag from your templates.
+  version. If you relied on ``JS``/``CSS`` objects with differing attributes for
+  the same path staying distinct, note that they de-duplicate on 5.2–6.1.
+- Added a ``static_lazy`` helper (a lazy wrapper around ``static()``, handy for
+  values resolved at import time such as import-map entries).
+- **Backwards-incompatible (import maps):** Removed the global ``importmap``
+  object and the ``js_asset.context_processors.importmap`` context processor.
+  Instead, embed ``ImportMap`` objects directly in a ``js_asset.Media`` next to
+  the assets that need them; they are merged into a single
+  ``<script type="importmap">`` automatically. To upgrade: render the relevant
+  media as a ``js_asset.Media`` (e.g. via your widgets, or ``Media.from_media``),
+  and remove both ``js_asset.context_processors.importmap`` from your
+  ``TEMPLATES`` and every ``{{ importmap }}`` tag from your templates.
 
 
 3.1 (2025-02-28)

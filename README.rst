@@ -14,6 +14,16 @@ objects (backported on Django versions that lack them), so js_asset assets,
 plain path strings and Django's native assets share the same de-duplication
 buckets in ``forms.Media`` -- see `Deduplication`_ below.
 
+.. warning::
+
+   **Upgrading from 3.x?** django-js-asset 4.0 is somewhat different, especially
+   if you use **import maps**: the global ``importmap`` object and its context
+   processor have been removed in favour of merging ``ImportMap`` objects
+   through the new ``js_asset.Media`` class (see `Import maps`_ below). Read the
+   `change log
+   <https://github.com/feincms/django-js-asset/blob/main/CHANGELOG.rst>`_ before
+   upgrading.
+
 Usage
 =====
 
@@ -124,7 +134,7 @@ Import maps
 ===========
 
 django-js-asset can ship `import maps
-<https://developer.mozilla.org/en-US/docs/Web/HTML/Element/script/type/importmap>`_.
+<https://developer.mozilla.org/en-US/docs/Web/HTML/Element/script/type/importmap>`__.
 They let your modules import short names (``import { Stuff } from
 "my-library"``) and have the browser resolve them to the real, possibly hashed,
 URLs produced by Django's ``ManifestStaticFilesStorage`` -- without rewriting
