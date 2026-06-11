@@ -5,12 +5,13 @@ Django `Script`/`Stylesheet`/`InlineStyle`; `_compat.py` backports the family
 (6.2 contract) below 5.2/6.1; `media.py` renders the nonce generically. The
 whole tox matrix (4.2 → main) is green.
 
-Correction found during implementation: `Stylesheet` and
-`MediaAsset.render(*, attrs=)` actually landed in **Django 6.1**, not 6.2 (the
-table below predates that finding). Only the attribute-aware `__eq__`/`__hash__`
-is 6.2-only. This does not change the design: 5.2/6.0 still lack `Stylesheet`
-and `render(attrs=)`, so the backport and generic nonce rendering are still
-required, and equality is still path-only across 5.2–6.1.
+Correction found during implementation (the matrix below has been updated
+accordingly): `Stylesheet` and `MediaAsset.render(*, attrs=)` actually landed in
+**Django 6.1**, not 6.2. Only `Media`'s bare-string auto-wrapping and the
+attribute-aware `__eq__`/`__hash__` are 6.2-only. This does not change the
+design: 5.2/6.0 still lack `Stylesheet` and `render(attrs=)`, so the backport
+and generic nonce rendering are still required, and equality is still path-only
+across 5.2–6.1.
 
 ## Goal
 
@@ -30,23 +31,24 @@ contract, which Django itself changed between releases.
 ## What exists where (verified against the Django source tree)
 
 `MediaAsset`/`Script` were added in **Django 5.2** (ticket #35886).
-`Stylesheet`, the `render(attrs=...)` method, and `Media`'s auto-wrapping of
-bare path strings all arrived only in **Django 6.2**. `js_asset`'s support
-floor is **Django 4.2**.
+`Stylesheet` and the `render(*, attrs=...)` method arrived in **Django 6.1**.
+`Media`'s auto-wrapping of bare path strings into assets, and the
+attribute-aware equality, arrived in **Django 6.2**. `js_asset`'s support floor
+is **Django 4.2**.
 
-| Capability                                            | 4.2 – 5.1 | 5.2 / 6.0 / 6.1 | 6.2+ |
-|-------------------------------------------------------|:---------:|:---------------:|:----:|
-| `MediaAsset`, `Script`                                | ✗         | ✓               | ✓    |
-| `Stylesheet`                                          | ✗         | ✗               | ✓    |
-| `MediaAsset.render(*, attrs=)`                        | ✗         | ✗ (`__str__` only) | ✓ |
-| `__eq__` compares **attributes**                      | –         | no (path only)  | yes  |
-| `__hash__`                                            | –         | `hash(_path)`   | `hash(_path) ^ hash(attrs)` |
-| `Media` wraps bare strings → `Script`/`Stylesheet`    | ✗         | ✗               | ✓    |
+| Capability                                            | 4.2 – 5.1 | 5.2 / 6.0          | 6.1            | 6.2+ |
+|-------------------------------------------------------|:---------:|:------------------:|:--------------:|:----:|
+| `MediaAsset`, `Script`                                | ✗         | ✓                  | ✓              | ✓    |
+| `Stylesheet`                                          | ✗         | ✗                  | ✓              | ✓    |
+| `MediaAsset.render(*, attrs=)`                        | ✗         | ✗ (`__str__` only) | ✓              | ✓    |
+| `__eq__` compares **attributes**                      | –         | no (path only)     | no (path only) | yes  |
+| `__hash__`                                            | –         | `hash(_path)`      | `hash(_path)`  | `hash(_path) ^ hash(attrs)` |
+| `Media` wraps bare strings → `Script`/`Stylesheet`    | ✗         | ✗                  | ✗              | ✓    |
 
 Two consequences fall straight out of this table:
 
 1. A factory that *returns* `Script`/`Stylesheet` needs those classes to exist —
-   they don't below 5.2 (`Script`) / 6.2 (`Stylesheet`). So below those floors a
+   they don't below 5.2 (`Script`) / 6.1 (`Stylesheet`). So below those floors a
    **backport** must stand in (`_compat.py`). The remaining cost is that
    `isinstance(x, JS)` no longer works for the produced object; this is
    addressable (see the isinstance inventory and mitigations below) and turns
@@ -172,10 +174,11 @@ bit-for-bit match:
   `render(attrs={"nonce": ...})`; dedup, byte-identity and the `csp_nonce_attr`
   tag all work natively. This path gets the polish and the thorough tests.
 - **5.2 – 6.1** — native `Script` exists (so JS-produced scripts still dedup with
-  strings/native Scripts via path), but it has no `Stylesheet`, no
-  `render(attrs=)`, and path-only equality. We accept that and let js_asset's
-  `Media` do the nonce rendering itself (rebuild the tag from `element_template`
-  + `flatatt`). Stylesheet is supplied by the backport.
+  strings/native Scripts via path), and equality is path-only throughout this
+  band. 5.2/6.0 additionally lack `Stylesheet` and `render(attrs=)` (the
+  backport supplies `Stylesheet`); 6.1 has both natively. Either way we let
+  js_asset's `Media` do the nonce rendering itself (rebuild the tag from
+  `element_template` + `flatatt`) rather than depend on `render(attrs=)`.
 - **4.2 – 5.1** — no Django asset classes at all; the `_compat.py` backport
   stands in. Goal here is "correct and reasonable", not feature-matched.
 

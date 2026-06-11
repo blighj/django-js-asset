@@ -1,6 +1,8 @@
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.forms.utils import flatatt
 from django.templatetags.static import static
 from django.utils.functional import lazy
@@ -24,6 +26,13 @@ __all__ = [
 
 
 static_lazy = lazy(static, str)
+
+
+def _canonical_hash(data):
+    # Hash an order-insensitive canonical form so the hash stays consistent
+    # with dict equality (``a == b`` must imply ``hash(a) == hash(b)``).
+    # ``DjangoJSONEncoder`` resolves lazy values, e.g. ``static_lazy`` paths.
+    return hash(json.dumps(data, sort_keys=True, cls=DjangoJSONEncoder))
 
 
 class InlineStyle(MediaAsset):
@@ -88,7 +97,9 @@ class JSON:
     id: str | None = field(default="", kw_only=True)
 
     def __hash__(self):
-        return hash(self.__str__())
+        # ``__eq__`` (dataclass) compares ``data`` order-insensitively, so the
+        # hash must too -- see ``_canonical_hash``.
+        return hash((_canonical_hash(self.data), self.id))
 
     def render(self, *, nonce=""):
         # A type="application/json" block is data, not executed JavaScript, so
@@ -108,7 +119,9 @@ class ImportMap:
         return isinstance(other, ImportMap) and self._importmap == other._importmap
 
     def __hash__(self):
-        return hash(self.__str__())
+        # ``__eq__`` compares the underlying dict order-insensitively, so the
+        # hash must too -- see ``_canonical_hash``.
+        return _canonical_hash(self._importmap)
 
     def render(self, *, nonce=""):
         if self._importmap:
